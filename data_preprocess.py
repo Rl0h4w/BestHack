@@ -37,10 +37,5 @@ class Dataset:
                 frame_window.append(frame)
                 trgts_window.append(trgts[frame_count])
                 frame_count += 1
-                if frame_count == self.size_of_window:
+                if frame_count >= self.size_of_window:
                     yield np.array(frame_window), np.array(trgts_window)
-
-
-train_ds = Dataset(
-    "train", "/kaggle/input/sxuprl/train/train", size_of_window=SIZE_OF_WINDOW
-)
