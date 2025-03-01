@@ -4,8 +4,11 @@ from collections import deque
 import numpy as np
 
 
+SIZE_OF_WINDOW = 30
+
+
 class Dataset:
-    def __init__(self, name, dir, size_of_window=4):
+    def __init__(self, name, dir, size_of_window=30):
         self.name = name
         self.dir = dir
         self.size_of_window = size_of_window
@@ -23,7 +26,7 @@ class Dataset:
                 trgts = deque([float(i) for i in file.readline().split()])
             cap = cv2.VideoCapture(video_dir)
             frame_window = deque(maxlen=self.size_of_window)
-            hr_window = deque(maxlen=self.size_of_window)
+            trgts_window = deque(maxlen=self.size_of_window)
             frame_count = 0
 
             while True:
@@ -32,10 +35,12 @@ class Dataset:
                     break
                 frame = cv2.resize(frame, (self.width, self.height))
                 frame_window.append(frame)
-                hr_window.append(trgts[frame_count])
+                trgts_window.append(trgts[frame_count])
                 frame_count += 1
                 if frame_count == self.size_of_window:
-                    yield np.array(frame_window), np.array(hr_window)
+                    yield np.array(frame_window), np.array(trgts_window)
 
 
-train_ds = Dataset("train", "/kaggle/input/sxuprl/train/train")
+train_ds = Dataset(
+    "train", "/kaggle/input/sxuprl/train/train", size_of_window=SIZE_OF_WINDOW
+)
