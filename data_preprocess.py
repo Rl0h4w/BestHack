@@ -2,7 +2,6 @@ import os
 import cv2
 import numpy as np
 from collections import deque
-from sklearn.preprocessing import StandardScaler
 import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import (
@@ -19,32 +18,13 @@ from tensorflow.keras.layers import (
 from tensorflow.keras.callbacks import ModelCheckpoint
 from ultralytics import YOLO
 
-
-def get_all_targets(data_dir):
-    all_targets = []
-    for num_dir in os.listdir(data_dir):
-        subj_dir = os.path.join(data_dir, num_dir)
-        subj_dir = os.path.join(subj_dir, os.listdir(subj_dir)[0])
-        desc_path = os.path.join(subj_dir, "ground_truth.txt")
-
-        with open(desc_path, "r") as f:
-            targets = list(map(float, f.readline().split()))
-            all_targets.extend(targets)
-
-    return np.array(all_targets).reshape(-1, 1)
-
-
 train_data_dir = "/kaggle/input/sxuprl/train/train"
-train_targets = get_all_targets(train_data_dir)
-target_scaler = StandardScaler()
-target_scaler.fit(train_targets)
 
 
 class VideoDataset:
-    def __init__(self, data_dir, window_size=10, target_scaler=None):
+    def __init__(self, data_dir, window_size=3):
         self.data_dir = data_dir
         self.window_size = window_size
-        self.target_scaler = target_scaler
         self.width, self.height = 160, 120
         self.face_model = YOLO(
             "/kaggle/input/face-detection-using-yolov8/yolov8n-face.pt"
@@ -59,20 +39,14 @@ class VideoDataset:
             targets_path = os.path.join(subject_path, "ground_truth.txt")
 
             with open(targets_path, "r") as f:
-                targets = list(map(float, f.readline().split()))
-                if self.target_scaler:
-                    targets = self.target_scaler.transform(
-                        np.array(targets).reshape(-1, 1)
-                    )
-                    targets = targets.flatten()
-                else:
-                    targets = np.array(targets)
+                targets = np.array(list(map(float, f.readline().split())))
                 targets = deque(targets)
 
             cap = cv2.VideoCapture(video_path)
             frame_buffer = deque(maxlen=self.window_size)
             target_buffer = deque(maxlen=self.window_size)
             frame_count = 0
+
             while True:
                 ret, frame = cap.read()
                 if not ret:
@@ -102,6 +76,7 @@ class VideoDataset:
 
                     if x2_orig > x1_orig and y2_orig > y1_orig:
                         cropped_face = frame[y1_orig:y2_orig, x1_orig:x2_orig]
+
                 resized_face = cv2.resize(
                     cropped_face,
                     (self.width, self.height),
@@ -117,7 +92,7 @@ class VideoDataset:
                     yield np.array(frame_buffer), np.array(target_buffer)
 
 
-def build_model(input_shape=(10, 120, 160, 3)):
+def build_model(input_shape=(3, 120, 160, 3)):
     inputs = Input(shape=input_shape)
 
     x = Conv3D(32, (3, 3, 3), padding="same")(inputs)
@@ -146,7 +121,10 @@ def build_model(input_shape=(10, 120, 160, 3)):
 
     model = Model(inputs, outputs)
     model.summary()
-    optimizer = tf.keras.optimizers.RMSprop(learning_rate=1e-4)
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=3e-5, decay_steps=10000, decay_rate=0.96
+    )
+    optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
     model.compile(
         optimizer=optimizer,
         loss="mse",
@@ -159,16 +137,15 @@ def create_dataset_pipeline(dataset):
     ds = tf.data.Dataset.from_generator(
         lambda: dataset,
         output_signature=(
-            tf.TensorSpec(shape=(10, 120, 160, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(10,), dtype=tf.float32),
+            tf.TensorSpec(shape=(3, 120, 160, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(3,), dtype=tf.float32),
         ),
     )
+    return ds.batch(400).prefetch(tf.data.AUTOTUNE)
 
-    return ds.batch(100).prefetch(tf.data.AUTOTUNE)
 
-
-train_ds = VideoDataset(train_data_dir, target_scaler=target_scaler)
-test_ds = VideoDataset("/kaggle/input/sxuprl/test/test", target_scaler=target_scaler)
+train_ds = VideoDataset(train_data_dir)
+test_ds = VideoDataset("/kaggle/input/sxuprl/test/test")
 
 train_pipeline = create_dataset_pipeline(train_ds)
 test_pipeline = create_dataset_pipeline(test_ds)
@@ -186,7 +163,7 @@ with strategy.scope():
     model = build_model()
 
 history = model.fit(
-    train_pipeline, validation_data=test_pipeline, epochs=50, callbacks=[checkpoint]
+    train_pipeline, validation_data=test_pipeline, epochs=5, callbacks=[checkpoint]
 )
 
 best_model = tf.keras.models.load_model("best_model.keras")
