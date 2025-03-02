@@ -5,11 +5,12 @@ from collections import deque
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks
 from ultralytics import YOLO
+from tqdm.keras import TqdmCallback
 
-WINDOW_SIZE = 60
+WINDOW_SIZE = 3
 HEIGHT, WIDTH = 120, 160
-YOLO_BATCH_SIZE = 16
-DATA_BATCH_SIZE = 8
+YOLO_BATCH_SIZE = 256
+DATA_BATCH_SIZE = 128
 PARALLEL_VIDEOS = 4
 
 
@@ -18,8 +19,8 @@ class VideoProcessor:
         self.face_model = YOLO(
             "/kaggle/input/face-detection-using-yolov8/yolov8n-face.pt"
         )
-        self.frame_buffer = deque(maxlen=WINDOW_SIZE)
-        self.target_buffer = deque(maxlen=WINDOW_SIZE)
+        self.frame_buffer = deque()
+        self.target_buffer = deque()
         self.height, self.width = HEIGHT, WIDTH
 
     def process_video(self, video_path, target_path):
@@ -48,15 +49,23 @@ class VideoProcessor:
                 yolo_batch, original_frames = [], []
 
             while len(self.frame_buffer) >= WINDOW_SIZE:
+                window_frames = [
+                    self.frame_buffer.popleft() for _ in range(WINDOW_SIZE)
+                ]
+                window_targets = [
+                    self.target_buffer.popleft() for _ in range(WINDOW_SIZE)
+                ]
                 yield (
-                    np.array(list(self.frame_buffer)[-WINDOW_SIZE:], dtype=np.float32),
-                    np.array(list(self.target_buffer)[-WINDOW_SIZE:], dtype=np.float32),
+                    np.array(window_frames, dtype=np.float32),
+                    np.array(window_targets, dtype=np.float32),
                 )
 
         while len(self.frame_buffer) >= WINDOW_SIZE:
+            window_frames = [self.frame_buffer.popleft() for _ in range(WINDOW_SIZE)]
+            window_targets = [self.target_buffer.popleft() for _ in range(WINDOW_SIZE)]
             yield (
-                np.array(list(self.frame_buffer)[-WINDOW_SIZE:], dtype=np.float32),
-                np.array(list(self.target_buffer)[-WINDOW_SIZE:], dtype=np.float32),
+                np.array(window_frames, dtype=np.float32),
+                np.array(window_targets, dtype=np.float32),
             )
 
         cap.release()
@@ -176,6 +185,7 @@ train_ds = create_dataset("/kaggle/input/sxuprl/train/train")
 test_ds = create_dataset("/kaggle/input/sxuprl/test/test")
 
 callbacks_list = [
+    TqdmCallback(verbose=1),
     callbacks.ModelCheckpoint(
         "best_model.keras",
         save_best_only=True,
@@ -183,14 +193,11 @@ callbacks_list = [
         mode="min",
     ),
     callbacks.TensorBoard(log_dir="./logs"),
-    callbacks.EarlyStopping(patience=5, restore_best_weights=True),
+    callbacks.EarlyStopping(patience=3, restore_best_weights=True),
 ]
 
 history = model.fit(
-    train_ds,
-    validation_data=test_ds,
-    epochs=20,
-    callbacks=callbacks_list,
+    train_ds, validation_data=test_ds, epochs=5, callbacks=callbacks_list
 )
 
 best_model = tf.keras.models.load_model("best_model.keras")
