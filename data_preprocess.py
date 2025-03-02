@@ -15,6 +15,7 @@ from tensorflow.keras.layers import (
     Dropout,
     LSTM,
 )
+from tensorflow.keras.callbacks import ModelCheckpoint
 
 
 class Dataset:
@@ -59,36 +60,44 @@ class Dataset:
 def get_model(input_shape=(60, 240, 320, 3)):
     inputs = Input(shape=input_shape)
 
-    x = Conv3D(32, kernel_size=(3, 3, 3), activation="relu", padding="same")(inputs)
-    x = MaxPooling3D(pool_size=(1, 2, 2), padding="same")(x)
+    # Conv3D Block 1
+    x = Conv3D(32, (3, 3, 3), padding="same")(inputs)
     x = BatchNormalization()(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    x = MaxPooling3D((1, 2, 2), padding="same")(x)
 
-    x = Conv3D(64, kernel_size=(3, 3, 3), activation="relu", padding="same")(x)
-    x = MaxPooling3D(pool_size=(1, 2, 2), padding="same")(x)
+    # Conv3D Block 2
+    x = Conv3D(64, (3, 3, 3), padding="same")(x)
     x = BatchNormalization()(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    x = MaxPooling3D((1, 2, 2), padding="same")(x)
 
-    x = Conv3D(128, kernel_size=(3, 3, 3), activation="relu", padding="same")(x)
-    x = MaxPooling3D(pool_size=(1, 2, 2), padding="same")(x)
+    # Conv3D Block 3
+    x = Conv3D(128, (3, 3, 3), padding="same")(x)
     x = BatchNormalization()(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    x = MaxPooling3D((1, 2, 2), padding="same")(x)
 
-    time_steps = input_shape[0]
-    x = Reshape((time_steps, -1))(x)
-
+    # Temporal processing
+    x = Reshape((input_shape[0], -1))(x)
     x = LSTM(64, return_sequences=True)(x)
     x = LSTM(32, return_sequences=True)(x)
+
+    # Regression head
     x = TimeDistributed(Dense(256, activation="relu"))(x)
-    x = TimeDistributed(Dropout(0.5))(x)
-    x = TimeDistributed(Dense(1, activation="linear"))(x)
+    x = TimeDistributed(Dropout(0.3))(x)
+    x = TimeDistributed(Dense(1))(x)
+    outputs = Reshape((input_shape[0],))(x)
 
-    outputs = Reshape((time_steps,))(x)
+    model = Model(inputs, outputs)
 
-    model = Model(inputs=inputs, outputs=outputs)
+    # Optimizer with lower learning rate and gradient clipping
+    optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4, clipvalue=1.0)
     model.compile(
-        optimizer="adam",
+        optimizer=optimizer,
         loss="mse",
-        metrics=["mae", tf.keras.metrics.RootMeanSquaredError(name="rmse")],
+        metrics=["mae", tf.keras.metrics.RootMeanSquaredError()],
     )
-
     return model
 
 
@@ -107,11 +116,17 @@ def create_tf_dataset(dataset):
             tf.TensorSpec(shape=(60, 240, 320, 3), dtype=tf.float32),
             tf.TensorSpec(shape=(60,), dtype=tf.float32),
         ),
-    ).batch(6)
+    ).batch(4)
 
 
 train_dataset = create_tf_dataset(train_ds)
 test_dataset = create_tf_dataset(test_ds)
-
-model.fit(train_dataset, validation_data=test_dataset)
-model.save("model.h5")
+checkpoint = ModelCheckpoint(
+    filepath="model.weights.h5",
+    monitor="val_loss",
+    save_best_only=True,
+    save_weights_only=True,
+    mode="min",
+    verbose=1,
+)
+model.fit(train_dataset, validation_data=test_dataset, callbacks=[checkpoint])
