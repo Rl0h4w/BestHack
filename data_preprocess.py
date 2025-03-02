@@ -7,10 +7,10 @@ from tensorflow.keras import layers, models, callbacks
 from ultralytics import YOLO
 from tqdm.keras import TqdmCallback
 
-WINDOW_SIZE = 900
-HEIGHT, WIDTH = 60, 80
-YOLO_BATCH_SIZE = 32
-DATA_BATCH_SIZE = 16
+WINDOW_SIZE = 3
+HEIGHT, WIDTH = 120, 160
+YOLO_BATCH_SIZE = 256
+DATA_BATCH_SIZE = 128
 PARALLEL_VIDEOS = 4
 
 
