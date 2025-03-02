@@ -170,7 +170,7 @@ def build_3dcnn_lstm_model():
     )
     model.compile(
         optimizer=tf.keras.optimizers.Adam(lr_schedule, global_clipnorm=1.0),
-        loss="mse",
+        loss="mae",
         metrics=["mae", tf.keras.metrics.RootMeanSquaredError()],
     )
     return model
