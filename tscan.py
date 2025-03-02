@@ -135,6 +135,7 @@ class TemporalShift(layers.Layer):
         self.n_segment = n_segment
         self.fold_div = fold_div
 
+    @tf.function
     def call(self, x):
         batch_size, time, h, w, c = tf.shape(x)
 
